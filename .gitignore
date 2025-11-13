@@ -11,6 +11,12 @@ __pycache__/
 .env.test.local
 .env.production.local
 
+# Google Cloud Service Account Keys (NEVER COMMIT THESE!)
+*service-account*.json
+*serviceaccount*.json
+config/service-account-key.json
+credentials/*.json
+
 # Next.js
 .next/
 out/
