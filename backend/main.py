@@ -5,27 +5,27 @@ from dotenv import load_dotenv
 
 try:
     from .config import settings
-    from .database import init_db, close_db
+    # from .database import init_db, close_db
 except ImportError:
     from config import settings
-    from database import init_db, close_db
+    # from database import init_db, close_db
 
 load_dotenv()
 
-
+'''
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    await init_db()
+    #await init_db()
     yield
     # Shutdown
-    await close_db()
-
+    #await close_db()
+'''
 
 app = FastAPI(
     title="Gamified Productivity API",
     version="0.1.0",
-    lifespan=lifespan
+    #lifespan=lifespan
 )
 
 # CORS

@@ -13,7 +13,10 @@ async def init_db():
     """Initialize database connection"""
     global mongodb_client
     
-    mongodb_client = AsyncIOMotorClient(settings.mongodb_url)
+    mongodb_client = AsyncIOMotorClient(
+        settings.mongodb_url,
+        tlsCAFile=certifi.where()
+    )
     database = mongodb_client[settings.mongodb_db_name]
     
     # Import all models

@@ -10,9 +10,9 @@ beanie==1.23.6
 certifi==2023.11.17
 
 # Data Validation and Models
-pydantic==2.5.0
-pydantic-settings==2.1.0
-email-validator==2.1.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+email-validator==2.2.0
 
 # Authentication and Security
 python-jose[cryptography]==3.3.0
@@ -41,9 +41,9 @@ python-dotenv==1.0.0
 # Date and Time Handling
 python-dateutil==2.8.2
 
-# Image Processing (for avatar face scan)
-Pillow==10.1.0
-opencv-python==4.8.1.78
+# Image Processing (for avatar face scan) - commented out for now
+# Pillow==10.1.0
+# opencv-python==4.8.1.78
 
 # Testing
 pytest==7.4.3
