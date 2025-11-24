@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
+import certifi
 
 try:
     from .config import settings
@@ -13,10 +14,16 @@ async def init_db():
     """Initialize database connection"""
     global mongodb_client
     
+    # Use certifi for SSL certificates
     mongodb_client = AsyncIOMotorClient(
         settings.mongodb_url,
-        tlsCAFile=certifi.where()
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=5000
     )
+    
+    # Test connection
+    await mongodb_client.admin.command('ping')
+    
     database = mongodb_client[settings.mongodb_db_name]
     
     # Import all models

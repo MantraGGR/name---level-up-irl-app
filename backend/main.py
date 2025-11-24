@@ -5,27 +5,35 @@ from dotenv import load_dotenv
 
 try:
     from .config import settings
-    # from .database import init_db, close_db
+    from .database import init_db, close_db
 except ImportError:
     from config import settings
-    # from database import init_db, close_db
+    from database import init_db, close_db
 
 load_dotenv()
 
-'''
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    #await init_db()
+    try:
+        await init_db()
+        print("✓ Database connected successfully")
+    except Exception as e:
+        print(f"⚠️  Database connection failed: {e}")
+        print("⚠️  API running without database")
     yield
     # Shutdown
-    #await close_db()
-'''
+    try:
+        await close_db()
+    except:
+        pass
+
 
 app = FastAPI(
     title="Gamified Productivity API",
     version="0.1.0",
-    #lifespan=lifespan
+    lifespan=lifespan
 )
 
 # CORS
@@ -41,7 +49,7 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {
-        "message": "Gamified Productivity API",
+        "message": "Mantra GProductivity App",
         "status": "running",
         "version": "0.1.0"
     }
@@ -50,3 +58,14 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "database": "connected"}
+
+
+# Include routers
+try:
+    from .routers import users, tasks, assessments
+except ImportError:
+    from routers import users, tasks, assessments
+
+app.include_router(users.router)
+app.include_router(tasks.router)
+app.include_router(assessments.router)
