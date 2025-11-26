@@ -62,10 +62,11 @@ async def health_check():
 
 # Include routers
 try:
-    from .routers import users, tasks, assessments
+    from .routers import users, tasks, assessments, auth
 except ImportError:
-    from routers import users, tasks, assessments
+    from routers import users, tasks, assessments, auth
 
+app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tasks.router)
 app.include_router(assessments.router)

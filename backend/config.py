@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
     
+    # Google OAuth
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
+    
     # CORS
     cors_origins: List[str] = ["http://localhost:3000"]
     

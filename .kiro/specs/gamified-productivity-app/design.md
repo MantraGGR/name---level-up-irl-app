@@ -248,3 +248,9 @@ class APIErrorHandler:
 - **WebSocket Management**: Efficient connection pooling and message queuing
 - **Calendar Sync**: Debounced updates to prevent excessive API calls
 - **Progressive Loading**: Load 3D assets progressively based on user interaction
+
+
+### - remove before sub
+
+google calender api:
+

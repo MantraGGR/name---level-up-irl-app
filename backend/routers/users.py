@@ -14,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 class UserCreate(BaseModel):
     email: EmailStr
-    username: str
+    user_id: str
     full_name: Optional[str] = None
 
 
@@ -40,9 +40,8 @@ async def create_user(user_data: UserCreate):
     
     # Create new user
     user = UserProfile(
-        user_id=user_data.username,  # Using username as user_id for now
+        user_id=user_data.user_id,
         email=user_data.email,
-        username=user_data.username,
         full_name=user_data.full_name
     )
     await user.insert()
@@ -50,7 +49,7 @@ async def create_user(user_data: UserCreate):
     return UserResponse(
         user_id=user.user_id,
         email=user.email,
-        username=user.username,
+        username=user.user_id,  # Use user_id as username
         full_name=user.full_name,
         level=1,
         xp=0,
