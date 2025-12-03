@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 220, 220, 220;
+  --background-start-rgb: 10, 10, 15;
+  --background-end-rgb: 20, 20, 30;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: radial-gradient(ellipse at top, rgba(30, 30, 50, 0.8), transparent),
+              radial-gradient(ellipse at bottom, rgba(20, 20, 30, 0.8), transparent),
+              linear-gradient(to bottom, rgb(var(--background-start-rgb)), rgb(var(--background-end-rgb)));
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* RPG-style glow effects */
+.glow-text {
+  text-shadow: 0 0 10px rgba(147, 197, 253, 0.5),
+               0 0 20px rgba(147, 197, 253, 0.3),
+               0 0 30px rgba(147, 197, 253, 0.2);
+}
+
+.glow-border {
+  box-shadow: 0 0 15px rgba(147, 197, 253, 0.3),
+              inset 0 0 15px rgba(147, 197, 253, 0.1);
+}

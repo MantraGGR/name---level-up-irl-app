@@ -1,0 +1,35 @@
+FROM python:3.11
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies including CA certificates for SSL
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    ca-certificates \
+    openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+# Set SSL environment variables
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code - copy contents directly to /app
+COPY backend/ .
+
+# Create directories for uploads and assets
+RUN mkdir -p uploads/avatars assets/models assets/textures assets/animations
+
+# Expose port
+EXPOSE 8000
+
+# Command to run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
