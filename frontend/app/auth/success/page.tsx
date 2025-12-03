@@ -9,9 +9,17 @@ export default function AuthSuccess() {
 
   useEffect(() => {
     const token = searchParams.get('token')
+    const needsOnboarding = searchParams.get('needs_onboarding')
+    
     if (token) {
       localStorage.setItem('token', token)
-      router.push('/dashboard')
+      
+      // Redirect new users to onboarding quiz
+      if (needsOnboarding === 'true') {
+        router.push('/onboarding')
+      } else {
+        router.push('/dashboard')
+      }
     } else {
       router.push('/')
     }

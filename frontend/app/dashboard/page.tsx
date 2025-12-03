@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
+import ChatBot from '../components/ChatBot'
+import SpaceTunnel from '../components/SpaceTunnel'
 
 interface User {
   user_id: string
@@ -21,6 +23,26 @@ interface Task {
   completed: boolean
 }
 
+interface CalendarEvent {
+  id: string
+  event_id: string
+  title: string
+  start_time: string
+  end_time: string
+  life_pillar_tags: string[]
+}
+
+interface ActionStep {
+  id: string
+  title: string
+  description: string
+  life_pillar: string
+  priority: string
+  xp_reward: number
+  estimated_duration: number
+  completed: boolean
+}
+
 const pillarIcons: Record<string, string> = {
   health: '⚔️',
   career: '🎯',
@@ -34,13 +56,26 @@ export default function Dashboard() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const [actionSteps, setActionSteps] = useState<ActionStep[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [showIntro, setShowIntro] = useState(true)
+  const [isNewUser, setIsNewUser] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) {
       router.push('/')
       return
+    }
+
+    // Check if user just completed onboarding (new user)
+    const justOnboarded = sessionStorage.getItem('just_onboarded')
+    if (justOnboarded) {
+      setIsNewUser(true)
+      sessionStorage.removeItem('just_onboarded')
     }
 
     fetchUserData(token)
@@ -53,12 +88,78 @@ export default function Dashboard() {
       
       const tasksResponse = await axios.get(`http://localhost:8000/tasks/user/${response.data.user_id}`)
       setTasks(tasksResponse.data)
+
+      // Fetch calendar events
+      try {
+        const eventsResponse = await axios.get(`http://localhost:8000/calendar/events/${response.data.user_id}`)
+        setCalendarEvents(eventsResponse.data)
+      } catch (e) {
+        console.log('No calendar events yet')
+      }
+
+      // Fetch AI action steps
+      try {
+        const stepsResponse = await axios.get(`http://localhost:8000/calendar/action-steps/${response.data.user_id}`)
+        setActionSteps(stepsResponse.data)
+      } catch (e) {
+        console.log('No action steps yet')
+      }
     } catch (error) {
       console.error('Error fetching user data:', error)
       localStorage.removeItem('token')
       router.push('/')
     } finally {
       setLoading(false)
+      // Keep intro showing for a bit after data loads for smooth transition
+      setTimeout(() => setShowIntro(false), 3000)
+    }
+  }
+
+  const syncCalendar = async () => {
+    if (!user) return
+    setSyncing(true)
+    try {
+      await axios.post(`http://localhost:8000/calendar/sync/${user.user_id}`)
+      const eventsResponse = await axios.get(`http://localhost:8000/calendar/events/${user.user_id}`)
+      setCalendarEvents(eventsResponse.data)
+    } catch (error) {
+      console.error('Failed to sync calendar:', error)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const generateSteps = async () => {
+    if (!user) return
+    setGenerating(true)
+    try {
+      await axios.post(`http://localhost:8000/calendar/generate-steps/${user.user_id}`)
+      const stepsResponse = await axios.get(`http://localhost:8000/calendar/action-steps/${user.user_id}`)
+      setActionSteps(stepsResponse.data)
+    } catch (error) {
+      console.error('Failed to generate steps:', error)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const completeStep = async (stepId: string) => {
+    try {
+      const response = await axios.patch(`http://localhost:8000/tasks/${stepId}/complete`)
+      setActionSteps(prev => prev.map(s => s.id === stepId ? {...s, completed: true} : s))
+      // Update XP display
+      if (user && response.data.xp_earned) {
+        const pillar = response.data.life_pillar
+        setUser({
+          ...user,
+          total_xp: {
+            ...user.total_xp,
+            [pillar]: (user.total_xp[pillar] || 0) + response.data.xp_earned
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Failed to complete step:', error)
     }
   }
 
@@ -67,14 +168,15 @@ export default function Dashboard() {
     router.push('/')
   }
 
-  if (loading) {
+  // Show loading state if no user yet
+  if (loading && !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-400 mb-4"></div>
-          <div className="text-xl text-gray-400">Loading System...</div>
-        </div>
-      </div>
+      <SpaceTunnel 
+        duration={10000} 
+        username=""
+        isNewUser={isNewUser}
+        onComplete={() => {}} 
+      />
     )
   }
 
@@ -170,6 +272,99 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Calendar & AI Steps Grid */}
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          {/* Calendar Events */}
+          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
+                📅 Calendar
+              </h3>
+              <button
+                onClick={syncCalendar}
+                disabled={syncing}
+                className="text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 px-4 py-2 rounded-lg transition-all uppercase tracking-wider font-bold"
+              >
+                {syncing ? '⟳ Syncing...' : '⟳ Sync'}
+              </button>
+            </div>
+            {calendarEvents.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-3">📆</div>
+                <p className="text-gray-500 text-sm">No upcoming events</p>
+                <p className="text-gray-600 text-xs mt-1">Sync your Google Calendar to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {calendarEvents.slice(0, 5).map((event) => (
+                  <div key={event.id} className="bg-black/50 border border-gray-800 rounded-lg p-3 hover:border-blue-900/50 transition-all">
+                    <div className="font-bold text-white text-sm mb-1">{event.title}</div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(event.start_time).toLocaleDateString()} at {new Date(event.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </div>
+                    <div className="flex gap-1 mt-2">
+                      {event.life_pillar_tags.map(tag => (
+                        <span key={tag} className="text-xs bg-blue-900/30 text-blue-300 px-2 py-0.5 rounded">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* AI Action Steps */}
+          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-purple-900/30 rounded-lg shadow-2xl p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-wider">
+                🤖 AI Quests
+              </h3>
+              <button
+                onClick={generateSteps}
+                disabled={generating || calendarEvents.length === 0}
+                className="text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 px-4 py-2 rounded-lg transition-all uppercase tracking-wider font-bold"
+              >
+                {generating ? '⚡ Generating...' : '⚡ Generate'}
+              </button>
+            </div>
+            {actionSteps.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-3">🧠</div>
+                <p className="text-gray-500 text-sm">No AI quests yet</p>
+                <p className="text-gray-600 text-xs mt-1">Sync calendar then generate AI-powered tasks</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {actionSteps.filter(s => !s.completed).map((step) => (
+                  <div key={step.id} className="bg-black/50 border border-gray-800 rounded-lg p-3 hover:border-purple-900/50 transition-all group">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="font-bold text-white text-sm mb-1">{step.title}</div>
+                        <p className="text-xs text-gray-500 mb-2">{step.description}</p>
+                        <div className="flex gap-2 items-center">
+                          <span className="text-xs bg-purple-900/30 text-purple-300 px-2 py-0.5 rounded">
+                            {step.life_pillar}
+                          </span>
+                          <span className="text-xs text-cyan-400 font-bold">+{step.xp_reward} XP</span>
+                          <span className="text-xs text-gray-600">~{step.estimated_duration}min</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => completeStep(step.id)}
+                        className="opacity-0 group-hover:opacity-100 bg-green-600 hover:bg-green-500 text-xs px-3 py-1 rounded transition-all"
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Quest Log */}
         <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6">
           <h3 className="text-xl font-black mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
@@ -217,6 +412,26 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {/* ChatBot */}
+      <ChatBot 
+        userId={user.user_id} 
+        onTaskCreated={() => {
+          // Refresh tasks when chatbot creates one
+          axios.get(`http://localhost:8000/tasks/user/${user.user_id}`)
+            .then(res => setTasks(res.data))
+        }}
+      />
+
+      {/* Space Tunnel Intro Overlay */}
+      {showIntro && (
+        <SpaceTunnel 
+          duration={4500} 
+          username={user.full_name?.split(' ')[0] || ''}
+          isNewUser={isNewUser}
+          onComplete={() => setShowIntro(false)} 
+        />
+      )}
     </div>
   )
 }

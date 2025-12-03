@@ -82,7 +82,7 @@ async def get_user(user_id: str):
 @router.get("/", response_model=List[UserResponse])
 async def list_users(limit: int = 10):
     """List all users"""
-    users = await UserProfile.find_all().limit(limit).to_list()
+    users = await UserProfile.find_all().to_list(limit)
     
     return [
         UserResponse(

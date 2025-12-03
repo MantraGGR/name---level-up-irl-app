@@ -1,22 +1,18 @@
 version: '3.8'
 
 services:
-  # MongoDB Database (commented out - using MongoDB Atlas instead)
-  # mongodb:
-  #   image: mongo:7.0
-  #   container_name: gamified_productivity_db
-  #   restart: unless-stopped
-  #   ports:
-  #     - "27017:27017"
-  #   environment:
-  #     MONGO_INITDB_ROOT_USERNAME: admin
-  #     MONGO_INITDB_ROOT_PASSWORD: password
-  #     MONGO_INITDB_DATABASE: gamified_productivity
-  #   volumes:
-  #     - mongodb_data:/data/db
-  #     - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
-  #   networks:
-  #     - app-network
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: gamified_productivity_db
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - app-network
 
   # Redis for Caching and Background Tasks
   redis:
@@ -43,8 +39,10 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://mongodb:27017/gamified_productivity
     depends_on:
       - redis
+      - mongodb
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
@@ -74,7 +72,7 @@ services:
       - app-network
 
 volumes:
-  # mongodb_data:  # Not needed with MongoDB Atlas
+  mongodb_data:
   redis_data:
 
 networks:

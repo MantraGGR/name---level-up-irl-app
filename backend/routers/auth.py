@@ -34,12 +34,14 @@ def create_access_token(data: dict):
 @router.get("/google/login")
 async def google_login():
     """Redirect to Google OAuth login"""
+    # Include Calendar scope for calendar access
+    scopes = "openid email profile https://www.googleapis.com/auth/calendar.readonly"
     google_auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={settings.google_client_id}&"
         f"redirect_uri={settings.google_redirect_uri}&"
         f"response_type=code&"
-        f"scope=openid email profile&"
+        f"scope={scopes}&"
         f"access_type=offline&"
         f"prompt=consent"
     )
@@ -84,35 +86,51 @@ async def google_callback(code: str):
         google_id = user_info.get("id")
     
     # Check if user exists
-    user = await UserProfile.find_one({"email": email})
+    try:
+        user = await UserProfile.find_one({"email": email})
+        print(f"[AUTH] Looking up user by email: {email}, found: {user is not None}")
+    except Exception as e:
+        print(f"[AUTH] Error looking up user: {e}")
+        raise HTTPException(status_code=500, detail=f"Database lookup failed: {str(e)}")
     
     if not user:
         # Create new user
-        user = UserProfile(
-            user_id=google_id,
-            email=email,
-            full_name=name,
-            google_tokens=GoogleTokens(
-                access_token=access_token,
-                refresh_token=refresh_token,
-                token_expiry=datetime.utcnow() + timedelta(seconds=tokens.get("expires_in", 3600))
+        try:
+            user = UserProfile(
+                user_id=google_id,
+                email=email,
+                full_name=name,
+                google_tokens=GoogleTokens(
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    token_expiry=datetime.utcnow() + timedelta(seconds=tokens.get("expires_in", 3600))
+                )
             )
-        )
-        await user.insert()
+            await user.insert()
+            print(f"[AUTH] Created new user: {email} with id: {google_id}")
+        except Exception as e:
+            print(f"[AUTH] Error creating user: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
     else:
         # Update tokens
-        user.google_tokens = GoogleTokens(
-            access_token=access_token,
-            refresh_token=refresh_token or user.google_tokens.refresh_token if user.google_tokens else None,
-            token_expiry=datetime.utcnow() + timedelta(seconds=tokens.get("expires_in", 3600))
-        )
-        await user.save()
+        try:
+            user.google_tokens = GoogleTokens(
+                access_token=access_token,
+                refresh_token=refresh_token or (user.google_tokens.refresh_token if user.google_tokens else None),
+                token_expiry=datetime.utcnow() + timedelta(seconds=tokens.get("expires_in", 3600))
+            )
+            await user.save()
+            print(f"[AUTH] Updated tokens for existing user: {email}")
+        except Exception as e:
+            print(f"[AUTH] Error updating user tokens: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
     
     # Create JWT token for our app
     jwt_token = create_access_token({"sub": user.user_id, "email": user.email})
     
-    # Redirect to frontend with token
-    return RedirectResponse(url=f"http://localhost:3000/auth/success?token={jwt_token}")
+    # Redirect to frontend with token and onboarding status
+    needs_onboarding = "true" if not user.has_completed_onboarding else "false"
+    return RedirectResponse(url=f"http://localhost:3000/auth/success?token={jwt_token}&needs_onboarding={needs_onboarding}")
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -154,7 +172,8 @@ async def get_current_user(token: str):
             "email": user.email,
             "full_name": user.full_name,
             "life_pillar_levels": user.life_pillar_levels,
-            "total_xp": user.total_xp
+            "total_xp": user.total_xp,
+            "has_completed_onboarding": user.has_completed_onboarding
         }
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

@@ -20,6 +20,9 @@ class UserPreferences(BaseModel):
     notifications_enabled: bool = True
     calendar_sync_enabled: bool = True
     ai_recommendations_enabled: bool = True
+    # Onboarding-based boosts
+    xp_multiplier: float = 1.0  # Multiplier for XP earned on tasks
+    recommended_task_size: str = "medium"  # small/medium/large based on mental health
 
 
 class UserProfile(Document):
@@ -51,6 +54,9 @@ class UserProfile(Document):
     
     # Avatar reference
     avatar_config_id: Optional[str] = None
+    
+    # Onboarding status
+    has_completed_onboarding: bool = False
     
     preferences: UserPreferences = Field(default_factory=UserPreferences)
     created_at: datetime = Field(default_factory=datetime.utcnow)

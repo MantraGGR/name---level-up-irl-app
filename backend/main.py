@@ -21,7 +21,10 @@ async def lifespan(app: FastAPI):
         print("✓ Database connected successfully")
     except Exception as e:
         print(f"⚠️  Database connection failed: {e}")
-        print("⚠️  API running without database")
+        print(f"⚠️  Full error: {type(e).__name__}: {e}")
+        # Re-raise in debug mode so we know there's an issue
+        if settings.debug:
+            raise RuntimeError(f"Database connection required but failed: {e}")
     yield
     # Shutdown
     try:
@@ -62,11 +65,13 @@ async def health_check():
 
 # Include routers
 try:
-    from .routers import users, tasks, assessments, auth
+    from .routers import users, tasks, assessments, auth, calendar, chat
 except ImportError:
-    from routers import users, tasks, assessments, auth
+    from routers import users, tasks, assessments, auth, calendar, chat
 
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tasks.router)
 app.include_router(assessments.router)
+app.include_router(calendar.router)
+app.include_router(chat.router)

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     google_client_secret: str
     google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
     
+    # Gemini AI
+    gemini_api_key: str = ""
+    
     # CORS
     cors_origins: List[str] = ["http://localhost:3000"]
     
