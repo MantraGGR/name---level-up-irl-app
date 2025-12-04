@@ -3,13 +3,24 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
-import ChatBot from '../components/ChatBot'
+import dynamic from 'next/dynamic'
 import SpaceTunnel from '../components/SpaceTunnel'
+import ChatBot from '../components/ChatBot'
+
+const Avatar3D = dynamic(() => import('../components/Avatar3D'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center">
+      <div className="animate-pulse text-cyan-400">Loading Avatar...</div>
+    </div>
+  )
+})
 
 interface User {
   user_id: string
   email: string
   full_name: string
+  display_name?: string
   life_pillar_levels: Record<string, number>
   total_xp: Record<string, number>
 }
@@ -19,28 +30,10 @@ interface Task {
   title: string
   description: string
   life_pillar: string
-  xp_reward: number
-  completed: boolean
-}
-
-interface CalendarEvent {
-  id: string
-  event_id: string
-  title: string
-  start_time: string
-  end_time: string
-  life_pillar_tags: string[]
-}
-
-interface ActionStep {
-  id: string
-  title: string
-  description: string
-  life_pillar: string
   priority: string
   xp_reward: number
-  estimated_duration: number
   completed: boolean
+  estimated_duration: number
 }
 
 const pillarIcons: Record<string, string> = {
@@ -52,17 +45,29 @@ const pillarIcons: Record<string, string> = {
   recreation: '🎮'
 }
 
+const LIFE_PILLARS = ['health', 'career', 'relationships', 'personal_growth', 'finance', 'recreation']
+const PRIORITIES = ['low', 'medium', 'high', 'urgent']
+
 export default function Dashboard() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
-  const [actionSteps, setActionSteps] = useState<ActionStep[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [showIntro, setShowIntro] = useState(true)
+  const [showTunnel, setShowTunnel] = useState(false)
   const [isNewUser, setIsNewUser] = useState(false)
+  
+  // Task creation state
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    life_pillar: 'health',
+    priority: 'medium',
+    estimated_duration: 30
+  })
+  const [creating, setCreating] = useState(false)
+  const [completingTask, setCompletingTask] = useState<string | null>(null)
+  const [xpAnimation, setXpAnimation] = useState<{ pillar: string; amount: number } | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -71,11 +76,13 @@ export default function Dashboard() {
       return
     }
 
-    // Check if user just completed onboarding (new user)
     const justOnboarded = sessionStorage.getItem('just_onboarded')
     if (justOnboarded) {
       setIsNewUser(true)
+      setShowTunnel(true)
       sessionStorage.removeItem('just_onboarded')
+    } else {
+      setShowTunnel(true)
     }
 
     fetchUserData(token)
@@ -88,78 +95,73 @@ export default function Dashboard() {
       
       const tasksResponse = await axios.get(`http://localhost:8000/tasks/user/${response.data.user_id}`)
       setTasks(tasksResponse.data)
-
-      // Fetch calendar events
-      try {
-        const eventsResponse = await axios.get(`http://localhost:8000/calendar/events/${response.data.user_id}`)
-        setCalendarEvents(eventsResponse.data)
-      } catch (e) {
-        console.log('No calendar events yet')
-      }
-
-      // Fetch AI action steps
-      try {
-        const stepsResponse = await axios.get(`http://localhost:8000/calendar/action-steps/${response.data.user_id}`)
-        setActionSteps(stepsResponse.data)
-      } catch (e) {
-        console.log('No action steps yet')
-      }
     } catch (error) {
       console.error('Error fetching user data:', error)
       localStorage.removeItem('token')
       router.push('/')
     } finally {
       setLoading(false)
-      // Keep intro showing for a bit after data loads for smooth transition
-      setTimeout(() => setShowIntro(false), 3000)
     }
   }
 
-  const syncCalendar = async () => {
-    if (!user) return
-    setSyncing(true)
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user || !newTask.title.trim()) return
+    
+    setCreating(true)
     try {
-      await axios.post(`http://localhost:8000/calendar/sync/${user.user_id}`)
-      const eventsResponse = await axios.get(`http://localhost:8000/calendar/events/${user.user_id}`)
-      setCalendarEvents(eventsResponse.data)
+      const xpReward = Math.round(newTask.estimated_duration / 15) * 10
+      const response = await axios.post('http://localhost:8000/tasks/', {
+        user_id: user.user_id,
+        title: newTask.title,
+        description: newTask.description,
+        life_pillar: newTask.life_pillar,
+        priority: newTask.priority,
+        estimated_duration: newTask.estimated_duration,
+        xp_reward: xpReward
+      })
+      
+      setTasks(prev => [response.data, ...prev])
+      setNewTask({ title: '', description: '', life_pillar: 'health', priority: 'medium', estimated_duration: 30 })
+      setShowCreateTask(false)
     } catch (error) {
-      console.error('Failed to sync calendar:', error)
+      console.error('Error creating task:', error)
     } finally {
-      setSyncing(false)
+      setCreating(false)
     }
   }
 
-  const generateSteps = async () => {
-    if (!user) return
-    setGenerating(true)
+  const handleCompleteTask = async (taskId: string) => {
+    setCompletingTask(taskId)
     try {
-      await axios.post(`http://localhost:8000/calendar/generate-steps/${user.user_id}`)
-      const stepsResponse = await axios.get(`http://localhost:8000/calendar/action-steps/${user.user_id}`)
-      setActionSteps(stepsResponse.data)
-    } catch (error) {
-      console.error('Failed to generate steps:', error)
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  const completeStep = async (stepId: string) => {
-    try {
-      const response = await axios.patch(`http://localhost:8000/tasks/${stepId}/complete`)
-      setActionSteps(prev => prev.map(s => s.id === stepId ? {...s, completed: true} : s))
-      // Update XP display
-      if (user && response.data.xp_earned) {
-        const pillar = response.data.life_pillar
-        setUser({
-          ...user,
-          total_xp: {
-            ...user.total_xp,
-            [pillar]: (user.total_xp[pillar] || 0) + response.data.xp_earned
-          }
-        })
+      const response = await axios.patch(`http://localhost:8000/tasks/${taskId}/complete`)
+      
+      // Show XP animation
+      setXpAnimation({ pillar: response.data.life_pillar, amount: response.data.xp_earned })
+      setTimeout(() => setXpAnimation(null), 2000)
+      
+      // Update task in list
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: true } : t))
+      
+      // Refresh user data to get updated XP
+      const token = localStorage.getItem('token')
+      if (token) {
+        const userResponse = await axios.get(`http://localhost:8000/auth/me?token=${token}`)
+        setUser(userResponse.data)
       }
     } catch (error) {
-      console.error('Failed to complete step:', error)
+      console.error('Error completing task:', error)
+    } finally {
+      setCompletingTask(null)
+    }
+  }
+
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      await axios.delete(`http://localhost:8000/tasks/${taskId}`)
+      setTasks(prev => prev.filter(t => t.id !== taskId))
+    } catch (error) {
+      console.error('Error deleting task:', error)
     }
   }
 
@@ -168,15 +170,28 @@ export default function Dashboard() {
     router.push('/')
   }
 
-  // Show loading state if no user yet
-  if (loading && !user) {
+  const handleTunnelComplete = () => {
+    setShowTunnel(false)
+  }
+
+  if (showTunnel && user) {
     return (
-      <SpaceTunnel 
-        duration={10000} 
-        username=""
+      <SpaceTunnel
+        username={user.display_name || user.full_name}
         isNewUser={isNewUser}
-        onComplete={() => {}} 
+        onComplete={handleTunnelComplete}
       />
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-400 mb-4"></div>
+          <div className="text-xl text-gray-400">Loading System...</div>
+        </div>
+      </div>
     )
   }
 
@@ -187,24 +202,33 @@ export default function Dashboard() {
     Object.values(user.life_pillar_levels).reduce((a, b) => a + b, 0) / 
     Object.keys(user.life_pillar_levels).length
   )
+  
+  const incompleteTasks = tasks.filter(t => !t.completed)
+  const completedTasks = tasks.filter(t => t.completed)
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Background effects */}
+    <div className="min-h-screen relative overflow-hidden bg-black">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/10 via-transparent to-transparent"></div>
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48cGF0dGVybiBpZD0iZ3JpZCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBwYXR0ZXJuVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48cGF0aCBkPSJNIDQwIDAgTCAwIDAgMCA0MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDIpIiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-20"></div>
       
-      {/* Navigation */}
+      {/* XP Animation */}
+      {xpAnimation && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none">
+          <div className="text-6xl font-black text-cyan-400 animate-bounce">
+            +{xpAnimation.amount} XP
+          </div>
+          <div className="text-center text-xl text-blue-300 uppercase tracking-wider">
+            {xpAnimation.pillar.replace('_', ' ')}
+          </div>
+        </div>
+      )}
+      
       <nav className="relative z-10 bg-black/40 backdrop-blur-md border-b border-blue-900/30 shadow-2xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 tracking-tight">
               TAKEOFF
             </h1>
-            <button
-              onClick={handleLogout}
-              className="text-gray-400 hover:text-white transition-colors text-sm uppercase tracking-wider"
-            >
+            <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors text-sm uppercase tracking-wider">
               Exit System
             </button>
           </div>
@@ -213,36 +237,44 @@ export default function Dashboard() {
 
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Player Card */}
-        <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6 mb-8 glow-border">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-xs uppercase tracking-widest text-blue-400 mb-1">Player</div>
-              <h2 className="text-3xl font-black text-white">{user.full_name}</h2>
-              <p className="text-gray-500 text-sm">{user.email}</p>
+        <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6 mb-8">
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="w-full md:w-48 h-64 bg-black/50 rounded-lg border border-blue-900/50 overflow-hidden">
+              <Avatar3D level={avgLevel} />
             </div>
-            <div className="text-right">
-              <div className="text-xs uppercase tracking-widest text-cyan-400 mb-1">Rank</div>
-              <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">
-                {avgLevel}
+            
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-blue-400 mb-1">Player</div>
+                  <h2 className="text-3xl font-black text-white">{user.display_name || user.full_name}</h2>
+                  <p className="text-gray-500 text-sm">{user.email}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs uppercase tracking-widest text-cyan-400 mb-1">Rank</div>
+                  <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">
+                    {avgLevel}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 mt-6">
-            <div className="bg-black/50 border border-blue-900/50 p-4 rounded-lg">
-              <div className="text-xs uppercase tracking-widest text-blue-300 mb-2">Total Experience</div>
-              <div className="text-3xl font-black text-blue-400">{totalXP.toLocaleString()}</div>
-              <div className="text-xs text-gray-600 mt-1">XP</div>
-            </div>
-            <div className="bg-black/50 border border-cyan-900/50 p-4 rounded-lg">
-              <div className="text-xs uppercase tracking-widest text-cyan-300 mb-2">Average Level</div>
-              <div className="text-3xl font-black text-cyan-400">{avgLevel}</div>
-              <div className="text-xs text-gray-600 mt-1">Across all stats</div>
+              
+              <div className="grid grid-cols-2 gap-4 mt-6">
+                <div className="bg-black/50 border border-blue-900/50 p-4 rounded-lg">
+                  <div className="text-xs uppercase tracking-widest text-blue-300 mb-2">Total Experience</div>
+                  <div className="text-3xl font-black text-blue-400">{totalXP.toLocaleString()}</div>
+                  <div className="text-xs text-gray-600 mt-1">XP</div>
+                </div>
+                <div className="bg-black/50 border border-cyan-900/50 p-4 rounded-lg">
+                  <div className="text-xs uppercase tracking-widest text-cyan-300 mb-2">Active Quests</div>
+                  <div className="text-3xl font-black text-cyan-400">{incompleteTasks.length}</div>
+                  <div className="text-xs text-gray-600 mt-1">Tasks</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Stats Grid */}
+        {/* Character Stats */}
         <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6 mb-8">
           <h3 className="text-xl font-black mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
             Character Stats
@@ -257,14 +289,11 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="text-3xl font-black text-white mb-1">LVL {level}</div>
-                <div className="text-sm text-gray-500">
-                  {user.total_xp[pillar].toLocaleString()} XP
-                </div>
-                {/* XP Bar */}
+                <div className="text-sm text-gray-500">{(user.total_xp[pillar] || 0).toLocaleString()} XP</div>
                 <div className="mt-3 h-1.5 bg-gray-800 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full"
-                    style={{ width: `${(user.total_xp[pillar] % 100)}%` }}
+                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-500"
+                    style={{ width: `${((user.total_xp[pillar] || 0) % 100)}%` }}
                   ></div>
                 </div>
               </div>
@@ -272,166 +301,190 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Calendar & AI Steps Grid */}
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Calendar Events */}
-          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
-                📅 Calendar
-              </h3>
-              <button
-                onClick={syncCalendar}
-                disabled={syncing}
-                className="text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 px-4 py-2 rounded-lg transition-all uppercase tracking-wider font-bold"
-              >
-                {syncing ? '⟳ Syncing...' : '⟳ Sync'}
-              </button>
-            </div>
-            {calendarEvents.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-4xl mb-3">📆</div>
-                <p className="text-gray-500 text-sm">No upcoming events</p>
-                <p className="text-gray-600 text-xs mt-1">Sync your Google Calendar to get started</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {calendarEvents.slice(0, 5).map((event) => (
-                  <div key={event.id} className="bg-black/50 border border-gray-800 rounded-lg p-3 hover:border-blue-900/50 transition-all">
-                    <div className="font-bold text-white text-sm mb-1">{event.title}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(event.start_time).toLocaleDateString()} at {new Date(event.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </div>
-                    <div className="flex gap-1 mt-2">
-                      {event.life_pillar_tags.map(tag => (
-                        <span key={tag} className="text-xs bg-blue-900/30 text-blue-300 px-2 py-0.5 rounded">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* AI Action Steps */}
-          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-purple-900/30 rounded-lg shadow-2xl p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-wider">
-                🤖 AI Quests
-              </h3>
-              <button
-                onClick={generateSteps}
-                disabled={generating || calendarEvents.length === 0}
-                className="text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 px-4 py-2 rounded-lg transition-all uppercase tracking-wider font-bold"
-              >
-                {generating ? '⚡ Generating...' : '⚡ Generate'}
-              </button>
-            </div>
-            {actionSteps.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-4xl mb-3">🧠</div>
-                <p className="text-gray-500 text-sm">No AI quests yet</p>
-                <p className="text-gray-600 text-xs mt-1">Sync calendar then generate AI-powered tasks</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {actionSteps.filter(s => !s.completed).map((step) => (
-                  <div key={step.id} className="bg-black/50 border border-gray-800 rounded-lg p-3 hover:border-purple-900/50 transition-all group">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="font-bold text-white text-sm mb-1">{step.title}</div>
-                        <p className="text-xs text-gray-500 mb-2">{step.description}</p>
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs bg-purple-900/30 text-purple-300 px-2 py-0.5 rounded">
-                            {step.life_pillar}
-                          </span>
-                          <span className="text-xs text-cyan-400 font-bold">+{step.xp_reward} XP</span>
-                          <span className="text-xs text-gray-600">~{step.estimated_duration}min</span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => completeStep(step.id)}
-                        className="opacity-0 group-hover:opacity-100 bg-green-600 hover:bg-green-500 text-xs px-3 py-1 rounded transition-all"
-                      >
-                        ✓
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* Quest Log */}
         <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-sm border border-blue-900/30 rounded-lg shadow-2xl p-6">
-          <h3 className="text-xl font-black mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
-            Quest Log
-          </h3>
-          {tasks.length === 0 ? (
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wider">
+              Quest Log
+            </h3>
+            <button
+              onClick={() => setShowCreateTask(true)}
+              className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold px-4 py-2 rounded-lg text-sm uppercase tracking-wider transition-all hover:shadow-lg hover:shadow-cyan-500/30"
+            >
+              + New Quest
+            </button>
+          </div>
+
+          {/* Create Task Modal */}
+          {showCreateTask && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-gray-900 border border-blue-900/50 rounded-xl p-6 w-full max-w-md">
+                <h4 className="text-xl font-black text-white mb-4">Create New Quest</h4>
+                <form onSubmit={handleCreateTask} className="space-y-4">
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">Quest Title</label>
+                    <input
+                      type="text"
+                      value={newTask.title}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                      placeholder="What do you want to accomplish?"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">Description</label>
+                    <textarea
+                      value={newTask.description}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 h-20 resize-none"
+                      placeholder="Add details..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">Life Pillar</label>
+                      <select
+                        value={newTask.life_pillar}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, life_pillar: e.target.value }))}
+                        className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                      >
+                        {LIFE_PILLARS.map(p => (
+                          <option key={p} value={p}>{pillarIcons[p]} {p.replace('_', ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">Priority</label>
+                      <select
+                        value={newTask.priority}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, priority: e.target.value }))}
+                        className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                      >
+                        {PRIORITIES.map(p => (
+                          <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">
+                      Duration: {newTask.estimated_duration} min ({Math.round(newTask.estimated_duration / 15) * 10} XP)
+                    </label>
+                    <input
+                      type="range"
+                      min="15"
+                      max="120"
+                      step="15"
+                      value={newTask.estimated_duration}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, estimated_duration: parseInt(e.target.value) }))}
+                      className="w-full accent-cyan-500"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateTask(false)}
+                      className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-3 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creating || !newTask.title.trim()}
+                      className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold py-3 rounded-lg disabled:opacity-50 transition-all"
+                    >
+                      {creating ? 'Creating...' : 'Create Quest'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Task List */}
+          {incompleteTasks.length === 0 && completedTasks.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-gray-600 mb-2">📜</div>
+              <div className="text-6xl mb-4">📜</div>
               <p className="text-gray-500 uppercase tracking-wider text-sm">No active quests</p>
-              <p className="text-gray-700 text-xs mt-1">Begin your journey by accepting a quest</p>
+              <p className="text-gray-700 text-xs mt-1">Create a quest to begin your journey</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {tasks.map((task) => (
+              {incompleteTasks.map((task) => (
                 <div
                   key={task.id}
-                  className={`border rounded-lg p-4 transition-all ${
-                    task.completed 
-                      ? 'bg-black/30 border-gray-800 opacity-50' 
-                      : 'bg-black/50 border-gray-800 hover:border-blue-900/50'
-                  }`}
+                  className="bg-black/50 border border-gray-800 hover:border-blue-900/50 rounded-lg p-4 transition-all group"
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xl">{pillarIcons[task.life_pillar] || '⭐'}</span>
                         <h4 className="font-bold text-white">{task.title}</h4>
-                        {task.completed && (
-                          <span className="text-green-400 text-sm">✓ Complete</span>
+                        {task.priority === 'urgent' && (
+                          <span className="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded">URGENT</span>
+                        )}
+                        {task.priority === 'high' && (
+                          <span className="text-xs bg-orange-900/50 text-orange-400 px-2 py-0.5 rounded">HIGH</span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-400 mb-3">{task.description}</p>
-                      <div className="flex gap-2">
+                      {task.description && (
+                        <p className="text-sm text-gray-400 mb-3">{task.description}</p>
+                      )}
+                      <div className="flex gap-2 flex-wrap">
                         <span className="text-xs bg-blue-900/30 text-blue-300 border border-blue-900/50 px-3 py-1 rounded-full uppercase tracking-wider">
-                          {task.life_pillar}
+                          {task.life_pillar.replace('_', ' ')}
                         </span>
                         <span className="text-xs bg-cyan-900/30 text-cyan-300 border border-cyan-900/50 px-3 py-1 rounded-full font-bold">
                           +{task.xp_reward} XP
                         </span>
+                        <span className="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full">
+                          ~{task.estimated_duration || 30} min
+                        </span>
                       </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleCompleteTask(task.id)}
+                        disabled={completingTask === task.id}
+                        className="bg-green-600 hover:bg-green-500 disabled:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all"
+                      >
+                        {completingTask === task.id ? '...' : '✓'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="bg-gray-800 hover:bg-red-900/50 text-gray-400 hover:text-red-400 px-3 py-2 rounded-lg text-sm transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
                 </div>
               ))}
+              
+              {/* Completed Tasks */}
+              {completedTasks.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-800">
+                  <h4 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Completed ({completedTasks.length})</h4>
+                  <div className="space-y-2">
+                    {completedTasks.slice(0, 5).map((task) => (
+                      <div key={task.id} className="bg-black/30 border border-gray-800 rounded-lg p-3 opacity-50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-400">✓</span>
+                          <span className="text-gray-400 line-through">{task.title}</span>
+                          <span className="text-xs text-cyan-400/50">+{task.xp_reward} XP</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </main>
 
-      {/* ChatBot */}
-      <ChatBot 
-        userId={user.user_id} 
-        onTaskCreated={() => {
-          // Refresh tasks when chatbot creates one
-          axios.get(`http://localhost:8000/tasks/user/${user.user_id}`)
-            .then(res => setTasks(res.data))
-        }}
-      />
-
-      {/* Space Tunnel Intro Overlay */}
-      {showIntro && (
-        <SpaceTunnel 
-          duration={4500} 
-          username={user.full_name?.split(' ')[0] || ''}
-          isNewUser={isNewUser}
-          onComplete={() => setShowIntro(false)} 
-        />
-      )}
+      <ChatBot />
     </div>
   )
 }

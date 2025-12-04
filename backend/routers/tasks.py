@@ -98,7 +98,12 @@ async def get_user_tasks(user_id: str, completed: Optional[bool] = None):
 
 @router.patch("/{task_id}/complete")
 async def complete_task(task_id: str):
-    """Mark a task as completed"""
+    """Mark a task as completed and award XP to user"""
+    try:
+        from ..models.user import UserProfile
+    except ImportError:
+        from models.user import UserProfile
+    
     task = await ActionStep.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -106,9 +111,24 @@ async def complete_task(task_id: str):
     if task.completed:
         raise HTTPException(status_code=400, detail="Task already completed")
     
+    # Mark task as completed
     task.completed = True
     task.completed_at = datetime.utcnow()
     await task.save()
+    
+    # Award XP to user
+    user = await UserProfile.find_one({"user_id": task.user_id})
+    if user:
+        # Add XP to the corresponding pillar
+        pillar = task.life_pillar
+        current_xp = user.total_xp.get(pillar, 0)
+        new_xp = current_xp + task.xp_reward
+        user.total_xp[pillar] = new_xp
+        
+        # Recalculate level (100 XP per level)
+        user.life_pillar_levels[pillar] = max(1, new_xp // 100 + 1)
+        
+        await user.save()
     
     return {
         "task_id": task_id,

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict
 from pydantic import BaseModel
+from datetime import datetime
 
 try:
     from ..models.assessment import AssessmentResults
@@ -88,6 +89,93 @@ async def get_user_assessment(user_id: str):
 class OnboardingComplete(BaseModel):
     display_name: Optional[str] = None
     pillar_scores: Optional[Dict[str, int]] = None
+
+
+class OnboardingData(BaseModel):
+    display_name: str
+    answers: Dict[str, int]
+    pillar_averages: Dict[str, float]
+
+
+@router.post("/onboarding")
+async def submit_onboarding(data: OnboardingData, token: str):
+    """Submit onboarding quiz results and update user profile"""
+    import jwt
+    import os
+    
+    try:
+        from ..models.user import UserProfile
+        from ..models.enums import LifePillar
+    except ImportError:
+        from models.user import UserProfile
+        from models.enums import LifePillar
+    
+    # Decode token to get user_id
+    try:
+        secret = os.getenv("JWT_SECRET", "your-secret-key")
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        user_id = payload.get("sub")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user = await UserProfile.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update display name
+    user.full_name = data.display_name
+    
+    # Calculate mental health indicators from answers
+    mental_health = {
+        "adhd": 0,
+        "anxiety": 0,
+        "depression": 0
+    }
+    
+    # mh1 and mh2 are mental health questions (inverted scoring)
+    if "mh1" in data.answers:
+        mental_health["anxiety"] = 5 - data.answers["mh1"]  # Overwhelmed = anxiety indicator
+    if "mh2" in data.answers:
+        mental_health["adhd"] = 5 - data.answers["mh2"]  # Focus difficulty = ADHD indicator
+    
+    # Convert pillar averages to integer scores (scale 1-4 to 1-8)
+    pillar_scores = {}
+    for pillar, avg in data.pillar_averages.items():
+        if pillar != "mental_health":
+            pillar_scores[pillar] = int(avg * 2)  # Scale 1-4 to 2-8
+    
+    # Calculate boosts
+    boosts = calculate_onboarding_boosts(pillar_scores, mental_health)
+    
+    # Apply XP and levels to user
+    pillar_mapping = {
+        'health': LifePillar.HEALTH,
+        'finance': LifePillar.FINANCE,
+        'relationships': LifePillar.RELATIONSHIPS,
+        'career': LifePillar.CAREER,
+        'personal_growth': LifePillar.PERSONAL_GROWTH,
+        'recreation': LifePillar.RECREATION,
+    }
+    
+    for key, pillar in pillar_mapping.items():
+        if key in boosts["total_xp"]:
+            user.total_xp[pillar] = boosts["total_xp"][key]
+            user.life_pillar_levels[pillar] = boosts["levels"][key]
+    
+    # Store XP multiplier
+    user.preferences.xp_multiplier = boosts["xp_multiplier"]
+    user.preferences.recommended_task_size = boosts["recommended_task_size"]
+    user.has_completed_onboarding = True
+    user.updated_at = datetime.utcnow()
+    
+    await user.save()
+    
+    return {
+        "message": "Onboarding completed",
+        "user_id": user_id,
+        "display_name": user.full_name,
+        "boosts": boosts
+    }
 
 
 def calculate_onboarding_boosts(pillar_scores: Dict[str, int], mental_health: Dict[str, int]) -> Dict:
