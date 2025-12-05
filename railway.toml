@@ -1,0 +1,12 @@
+# Railway configuration
+# This file configures how Railway builds and deploys your services
+
+[build]
+# Railway will auto-detect Dockerfiles
+
+[deploy]
+# Health check settings
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

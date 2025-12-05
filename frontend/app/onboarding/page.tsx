@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { api } from '../../lib/api'
 
 interface Question {
   id: string
@@ -158,7 +159,7 @@ export default function OnboardingPage() {
 
     try {
       // Submit assessment with all scores
-      await fetch('http://localhost:8000/assessments/', {
+      await fetch(api.assessments.create(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +172,7 @@ export default function OnboardingPage() {
       })
 
       // Complete onboarding with display name and pillar scores
-      await fetch(`http://localhost:8000/assessments/complete-onboarding/${userId}`, {
+      await fetch(api.assessments.completeOnboarding(userId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

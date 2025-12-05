@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { api } from '../lib/api'
 
 export default function Home() {
   const router = useRouter()
@@ -14,7 +15,7 @@ export default function Home() {
   }, [router])
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:8000/auth/google/login'
+    window.location.href = api.auth.googleLogin()
   }
 
   return (

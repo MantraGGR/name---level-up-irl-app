@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt
 import httpx
+import os
 
 try:
     from ..config import settings
@@ -11,6 +12,9 @@ try:
 except ImportError:
     from config import settings
     from models.user import UserProfile, GoogleTokens
+
+# Frontend URL for redirects (defaults to localhost for dev)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -34,8 +38,8 @@ def create_access_token(data: dict):
 @router.get("/google/login")
 async def google_login():
     """Redirect to Google OAuth login"""
-    # Include Calendar scope for calendar access
-    scopes = "openid email profile https://www.googleapis.com/auth/calendar.readonly"
+    # Include Calendar scope for full calendar access (read + write)
+    scopes = "openid email profile https://www.googleapis.com/auth/calendar"
     google_auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={settings.google_client_id}&"
@@ -130,7 +134,7 @@ async def google_callback(code: str):
     
     # Redirect to frontend with token and onboarding status
     needs_onboarding = "true" if not user.has_completed_onboarding else "false"
-    return RedirectResponse(url=f"http://localhost:3000/auth/success?token={jwt_token}&needs_onboarding={needs_onboarding}")
+    return RedirectResponse(url=f"{FRONTEND_URL}/auth/success?token={jwt_token}&needs_onboarding={needs_onboarding}")
 
 
 @router.post("/token", response_model=TokenResponse)

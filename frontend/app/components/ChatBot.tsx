@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { api } from '../../lib/api'
 
 interface Message {
   id: string
@@ -50,7 +51,7 @@ export default function ChatBot({ userId, onTaskCreated }: ChatBotProps) {
     setIsLoading(true)
 
     try {
-      const response = await axios.post('http://localhost:8000/chat/', {
+      const response = await axios.post(api.chat.send(), {
         user_id: userId,
         message: text
       })

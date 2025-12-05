@@ -42,7 +42,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,9 +65,9 @@ async def health_check():
 
 # Include routers
 try:
-    from .routers import users, tasks, assessments, auth, calendar, chat
+    from .routers import users, tasks, assessments, auth, calendar, chat, quests, goals, ultimate_goals
 except ImportError:
-    from routers import users, tasks, assessments, auth, calendar, chat
+    from routers import users, tasks, assessments, auth, calendar, chat, quests, goals, ultimate_goals
 
 app.include_router(auth.router)
 app.include_router(users.router)
@@ -75,3 +75,6 @@ app.include_router(tasks.router)
 app.include_router(assessments.router)
 app.include_router(calendar.router)
 app.include_router(chat.router)
+app.include_router(quests.router)
+app.include_router(goals.router)
+app.include_router(ultimate_goals.router)

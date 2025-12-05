@@ -131,14 +131,187 @@ def categorize_event_simple(title: str, description: str = "") -> List[LifePilla
     return pillars if pillars else [LifePillar.PERSONAL_GROWTH]
 
 
-@router.post("/sync/{user_id}")
-async def sync_calendar(user_id: str, days_ahead: int = 7):
-    """Sync Google Calendar events for a user"""
+class CreateEventRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    life_pillar: str = "personal_growth"
+    start_time: datetime
+    end_time: datetime
+    sync_to_google: bool = True  # Whether to push to Google Calendar
+
+
+async def push_event_to_google(user: UserProfile, event_data: dict) -> Optional[str]:
+    """Push an event to Google Calendar and return the Google event ID"""
+    if not user.google_tokens:
+        print("[CALENDAR] No Google tokens, skipping push to Google")
+        return None
+    
+    try:
+        access_token = await refresh_google_token(user)
+        
+        # Format event for Google Calendar API
+        google_event = {
+            "summary": event_data["title"],
+            "description": event_data.get("description", ""),
+            "start": {
+                "dateTime": event_data["start_time"].isoformat(),
+                "timeZone": "UTC"
+            },
+            "end": {
+                "dateTime": event_data["end_time"].isoformat(),
+                "timeZone": "UTC"
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=google_event
+            )
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                print(f"[CALENDAR] Pushed event to Google: {result.get('id')}")
+                return result.get("id")
+            else:
+                print(f"[CALENDAR] Failed to push to Google: {response.status_code} - {response.text}")
+                return None
+    except Exception as e:
+        print(f"[CALENDAR] Error pushing to Google: {e}")
+        return None
+
+
+@router.post("/create/{user_id}")
+async def create_calendar_event(user_id: str, event: CreateEventRequest):
+    """Create a calendar event and optionally sync to Google Calendar"""
     user = await UserProfile.find_one({"user_id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Parse life pillar
+    try:
+        pillar = LifePillar(event.life_pillar)
+    except ValueError:
+        pillar = LifePillar.PERSONAL_GROWTH
+    
+    # Try to push to Google Calendar first
+    google_event_id = None
+    if event.sync_to_google:
+        google_event_id = await push_event_to_google(user, {
+            "title": event.title,
+            "description": event.description,
+            "start_time": event.start_time,
+            "end_time": event.end_time
+        })
+    
+    # Use Google event ID if available, otherwise generate local ID
+    event_id = google_event_id or f"local_{user_id}_{datetime.utcnow().timestamp()}"
+    
+    new_event = CalendarEvent(
+        user_id=user_id,
+        event_id=event_id,
+        title=event.title,
+        description=event.description,
+        start_time=event.start_time,
+        end_time=event.end_time,
+        life_pillar_tags=[pillar]
+    )
+    await new_event.insert()
+    
+    return {
+        "id": str(new_event.id),
+        "event_id": new_event.event_id,
+        "title": new_event.title,
+        "description": new_event.description,
+        "start_time": new_event.start_time,
+        "end_time": new_event.end_time,
+        "life_pillar": pillar.value,
+        "synced_to_google": google_event_id is not None
+    }
+
+
+async def delete_event_from_google(user: UserProfile, google_event_id: str) -> bool:
+    """Delete an event from Google Calendar"""
+    if not user.google_tokens or google_event_id.startswith("local_"):
+        return False
+    
+    try:
+        access_token = await refresh_google_token(user)
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            
+            if response.status_code in [200, 204]:
+                print(f"[CALENDAR] Deleted event from Google: {google_event_id}")
+                return True
+            else:
+                print(f"[CALENDAR] Failed to delete from Google: {response.status_code}")
+                return False
+    except Exception as e:
+        print(f"[CALENDAR] Error deleting from Google: {e}")
+        return False
+
+
+@router.delete("/event/{event_id}")
+async def delete_calendar_event(event_id: str, user_id: str = None):
+    """Delete a calendar event from local DB and Google Calendar"""
+    event = await CalendarEvent.find_one({"event_id": event_id})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Try to delete from Google Calendar if it's a Google event
+    deleted_from_google = False
+    if not event_id.startswith("local_"):
+        user = await UserProfile.find_one({"user_id": event.user_id})
+        if user:
+            deleted_from_google = await delete_event_from_google(user, event_id)
+    
+    await event.delete()
+    return {"message": "Event deleted", "deleted_from_google": deleted_from_google}
+
+
+@router.get("/debug/{user_id}")
+async def debug_calendar_status(user_id: str):
+    """Debug endpoint to check calendar sync status"""
+    user = await UserProfile.find_one({"user_id": user_id})
+    if not user:
+        return {"error": "User not found"}
+    
+    has_tokens = user.google_tokens is not None
+    token_expired = False
+    if has_tokens:
+        token_expired = user.google_tokens.token_expiry < datetime.utcnow()
+    
+    event_count = await CalendarEvent.find({"user_id": user_id}).count()
+    
+    return {
+        "user_id": user_id,
+        "has_google_tokens": has_tokens,
+        "has_refresh_token": has_tokens and user.google_tokens.refresh_token is not None,
+        "token_expired": token_expired,
+        "token_expiry": user.google_tokens.token_expiry.isoformat() if has_tokens else None,
+        "total_events_in_db": event_count
+    }
+
+
+@router.post("/sync/{user_id}")
+async def sync_calendar(user_id: str, days_ahead: int = 7):
+    """Sync Google Calendar events for a user"""
+    print(f"[CALENDAR] Starting sync for user: {user_id}")
+    
+    user = await UserProfile.find_one({"user_id": user_id})
+    if not user:
+        print(f"[CALENDAR] User not found: {user_id}")
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    print(f"[CALENDAR] User found, has_tokens: {user.google_tokens is not None}")
+    
     access_token = await refresh_google_token(user)
+    print(f"[CALENDAR] Got access token")
     
     # Fetch calendar events
     time_min = datetime.utcnow().isoformat() + "Z"
@@ -158,9 +331,11 @@ async def sync_calendar(user_id: str, days_ahead: int = 7):
         )
         
         if response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to fetch calendar events")
+            print(f"[CALENDAR] Google API error: {response.status_code} - {response.text}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch calendar events: {response.text}")
         
         events_data = response.json()
+        print(f"[CALENDAR] Got {len(events_data.get('items', []))} events from Google")
     
     synced_events = []
     for event in events_data.get("items", []):
@@ -201,12 +376,13 @@ async def sync_calendar(user_id: str, days_ahead: int = 7):
             await new_event.insert()
             synced_events.append(new_event)
     
+    print(f"[CALENDAR] Synced {len(synced_events)} events")
     return {"synced": len(synced_events), "events": [e.title for e in synced_events]}
 
 
-@router.get("/events/{user_id}", response_model=List[CalendarEventResponse])
+@router.get("/events/{user_id}")
 async def get_calendar_events(user_id: str, days_ahead: int = 7):
-    """Get synced calendar events for a user"""
+    """Get all calendar events for a user (synced + local)"""
     cutoff = datetime.utcnow() + timedelta(days=days_ahead)
     events = await CalendarEvent.find({
         "user_id": user_id,
@@ -214,15 +390,16 @@ async def get_calendar_events(user_id: str, days_ahead: int = 7):
     }).sort([("start_time", 1)]).to_list()
     
     return [
-        CalendarEventResponse(
-            id=str(e.id),
-            event_id=e.event_id,
-            title=e.title,
-            description=e.description,
-            start_time=e.start_time,
-            end_time=e.end_time,
-            life_pillar_tags=[p.value for p in e.life_pillar_tags]
-        )
+        {
+            "id": str(e.id),
+            "event_id": e.event_id,
+            "title": e.title,
+            "description": e.description,
+            "start_time": e.start_time.isoformat(),
+            "end_time": e.end_time.isoformat(),
+            "life_pillar": e.life_pillar_tags[0].value if e.life_pillar_tags else "personal_growth",
+            "life_pillar_tags": [p.value for p in e.life_pillar_tags]
+        }
         for e in events
     ]
 

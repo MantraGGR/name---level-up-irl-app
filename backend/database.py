@@ -52,11 +52,17 @@ async def init_db():
         from .models.calendar import CalendarEvent, ActionStep
         from .models.avatar import AvatarConfiguration, Equipment
         from .models.assessment import AssessmentResults
+        from .routers.quests import Quest
+        from .routers.goals import LongTermGoal
+        from .routers.ultimate_goals import UltimateGoal
     except ImportError:
         from models.user import UserProfile
         from models.calendar import CalendarEvent, ActionStep
         from models.avatar import AvatarConfiguration, Equipment
         from models.assessment import AssessmentResults
+        from routers.quests import Quest
+        from routers.goals import LongTermGoal
+        from routers.ultimate_goals import UltimateGoal
     
     # Initialize Beanie
     await init_beanie(
@@ -67,7 +73,10 @@ async def init_db():
             ActionStep,
             AvatarConfiguration,
             Equipment,
-            AssessmentResults
+            AssessmentResults,
+            Quest,
+            LongTermGoal,
+            UltimateGoal
         ]
     )
     

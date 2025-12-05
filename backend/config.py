@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
+import os
 
 
 class Settings(BaseSettings):
@@ -23,12 +24,19 @@ class Settings(BaseSettings):
     # Gemini AI
     gemini_api_key: str = ""
     
-    # CORS
-    cors_origins: List[str] = ["http://localhost:3000"]
+    # CORS - accepts comma-separated string or list
+    cors_origins: Union[str, List[str]] = "http://localhost:3000"
     
     # App
     app_name: str = "Gamified Productivity App"
     debug: bool = True
+    
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS origins from string or list"""
+        if isinstance(self.cors_origins, str):
+            return [origin.strip() for origin in self.cors_origins.split(",")]
+        return self.cors_origins
     
     class Config:
         env_file = ".env"
